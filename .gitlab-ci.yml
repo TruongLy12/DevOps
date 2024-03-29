@@ -1,0 +1,76 @@
+# Define the stages of the pipeline
+stages:
+  - build
+  - unit_tests
+  - static_code_analysis
+  - publish_docker_images
+  - deployment
+
+# Define global variables
+variables:
+  DOCKER_REGISTRY: your-docker-registry-url
+  IMAGE_NAME: your-docker-image-name
+  DOCKER_IMAGE_TAG: latest
+  STAGING_SERVER_IP: your-staging-server-ip
+  PRODUCTION_SERVER_IP: your-production-server-ip
+
+# Define job templates for reuse
+.job_template: &default_job
+  image: node:latest  # Use an appropriate Docker image with Node.js installed
+  before_script:
+    - npm install  # Install dependencies
+  cache:
+    paths:
+      - node_modules/  # Cache node_modules to speed up builds
+  tags:
+    - docker  # Specify the tag(s) of the GitLab CI runner(s) capable of running Docker commands
+
+# Build stage
+build:
+  stage: build
+  <<: *default_job
+  script:
+    - npm run build:backend  # Run backend build script
+    - npm run build:frontend  # Run frontend build script
+  artifacts:
+    paths:
+      - backend/dist/  # Specify backend artifacts directory
+      - frontend/build/  # Specify frontend artifacts directory
+
+# Unit Tests stage
+unit_tests:
+  stage: unit_tests
+  <<: *default_job
+  script:
+    - npm test:backend  # Run backend unit tests
+    - npm test:frontend  # Run frontend unit tests
+
+# Static Code Analysis stage
+static_code_analysis:
+  stage: static_code_analysis
+  <<: *default_job
+  script:
+    - npm run lint  # Run linting scripts for both backend and frontend
+
+# Publish Docker Images stage
+publish_docker_images:
+  stage: publish_docker_images
+  image: docker:latest
+  script:
+    - docker build -t $DOCKER_REGISTRY/$IMAGE_NAME:$DOCKER_IMAGE_TAG .
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $DOCKER_REGISTRY
+    - docker push $DOCKER_REGISTRY/$IMAGE_NAME:$DOCKER_IMAGE_TAG
+
+deploy_staging:
+  stage: deployment
+  environment:
+    name: staging
+  script:
+    - ssh user@$STAGING_SERVER_IP 'docker pull $DOCKER_REGISTRY/$IMAGE_NAME:$DOCKER_IMAGE_TAG && docker-compose up -d'
+
+deploy_production:
+  stage: deployment
+  environment:
+    name: production
+  script:
+    - ssh user@$PRODUCTION_SERVER_IP 'docker pull $DOCKER_REGISTRY/$IMAGE_NAME:$DOCKER_IMAGE_TAG && docker-compose up -d'
